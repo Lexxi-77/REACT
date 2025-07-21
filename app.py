@@ -39,12 +39,12 @@ system_instruction = """You are a highly skilled, empathetic, and investigative 
 * After their initial story, you **must analyze** it to ensure you have a clear understanding of the **Who, What, When (including time of day), Where, Why, and How**.
 * You must specifically ask for the **number of perpetrators** and if there were any **witnesses**.
 * You must ask if the case was **reported to any authority**, and if so, **where**.
-* **Probe for details** with specific follow-up questions until you have a clear picture.
 
-**Phase 4: Evidence, Support, and Referral**
+**Phase 4: Evidence, Support, and Categorization**
 * Instruct the user on how to submit evidence via email or WhatsApp.
 * Ask about their support needs and the estimated costs/budget.
-* Ask for their referral source.
+* **(Required Field)** You must then ask the user to categorize their case. Guide them with options like "Legal & Security," "Socio-Economic," or "Health."
+* Finally, ask for their referral source.
 
 **Jotform Integration Rules (Internal monologue):**
 * The "Case assigned to" and "Referral received by" fields should always be "Alex Ssemambo".
@@ -76,7 +76,6 @@ if prompt := st.chat_input("Your response..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # --- Generate AI Response ---
     try:
         chat_session = model.start_chat(
             history=[
@@ -98,7 +97,6 @@ if prompt := st.chat_input("Your response..."):
 if len(st.session_state.messages) > 5:
     st.write("---")
     
-    # Section for Jotform Submission
     st.subheader("Finalize and Submit Report")
     st.write("Once the interview is complete, click the button below to save the full report to our secure database.")
     
@@ -106,9 +104,9 @@ if len(st.session_state.messages) > 5:
         try:
             with st.spinner("Analyzing conversation and preparing report..."):
                 full_transcript = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages])
-                json_prompt = f"""Analyze the following conversation transcript and extract all required information. Format it as a clean JSON object with ONLY these keys: "respondentName", "preferredName", "age", "contactDetails", "sexualOrientation", "genderIdentity", "district", "county", "village", "tribe", "religion", "occupation", "incidentDate", "location", "perpetrator", "numberOfPerpetrators", "witnesses", "caseReported", "reportedTo", "violationType", "eventSummary", "arrestCharges". Transcript: {full_transcript}"""
+                json_prompt = f"""Analyze the following conversation transcript and extract all required information. Format it as a clean JSON object with ONLY these keys: "respondentName", "preferredName", "age", "contactDetails", "sexualOrientation", "genderIdentity", "district", "county", "village", "tribe", "religion", "occupation", "incidentDate", "location", "perpetrator", "numberOfPerpetrators", "witnesses", "caseReported", "reportedTo", "violationType", "eventSummary", "arrestCharges", "caseCategory". Transcript: {full_transcript}"""
                 
-                final_model = genai.GenerativeModel('gemini-1.5-flash') # Use Flash for better free tier limits
+                final_model = genai.GenerativeModel('gemini-1.5-pro')
                 final_response = final_model.generate_content(json_prompt)
                 clean_json_text = final_response.text.strip().replace("```json", "").replace("```", "")
                 extracted_data = json.loads(clean_json_text)
@@ -139,7 +137,6 @@ if len(st.session_state.messages) > 5:
         except Exception as e:
             st.error(f"An error occurred during submission: {e}")
 
-    # Section for Narrative Summary
     st.subheader("Generate Narrative Story")
     st.write("You can also generate a narrative summary of the report for advocacy purposes.")
     if st.button("Create Narrative Summary"):
@@ -147,7 +144,7 @@ if len(st.session_state.messages) > 5:
             with st.spinner("Analyzing the conversation and writing the story..."):
                 full_transcript = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages])
                 
-                summary_prompt = f"""You are a skilled human rights report writer and story teller. Your task is to transform the following raw interview transcript into a clear, coherent, and chronologically ordered narrative. The story must be told from a third-person perspective. Synthesize all the details provided by the user—including their name, age, location, the incident details, and the perpetrators—into a flowing story. Do not miss any key information.
+                summary_prompt = f"""You are a skilled human rights report writer. Your task is to transform the following raw interview transcript into a clear, coherent, and chronologically ordered narrative. The story must be told from a third-person perspective. Synthesize all the details provided by the user—including their name, age, location, the incident details, and the perpetrators—into a flowing story. Do not miss any key information.
 
                 **Interview Transcript:**
                 {full_transcript}
@@ -155,7 +152,7 @@ if len(st.session_state.messages) > 5:
                 **Generated Narrative Story:**
                 """
                 
-                summary_model = genai.GenerativeModel('gemini-1.5-flash')
+                summary_model = genai.GenerativeModel('gemini-1.5-pro')
                 summary_response = summary_model.generate_content(summary_prompt)
                 
                 st.subheader("Generated Narrative Report")
