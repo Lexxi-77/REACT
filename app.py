@@ -103,12 +103,12 @@ if st.session_state.messages and "This concludes our interview" in st.session_st
                 full_transcript = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages])
                 
                 summary_prompt = f"You are a skilled human rights report writer. Your task is to transform the following raw interview transcript into a clear, coherent, and chronologically ordered narrative. The story must be told from a third-person perspective. Synthesize all the details provided by the user into a flowing story. Transcript: {full_transcript}"
-                summary_model = gen.GenerativeModel('gemini-1.5-flash')
+               summary_model = genai.GenerativeModel('gemini-1.5-flash')
                 summary_response = summary_model.generate_content(summary_prompt)
                 narrative_story = summary_response.text
 
                 json_prompt = f"""Analyze the following conversation transcript and extract all required information. Format it as a clean JSON object with ONLY these keys: "respondentName", "preferredName", "age", "contactDetails", "sexualOrientation", "genderIdentity", "district", "county", "village", "tribe", "religion", "occupation", "incidentDate", "location", "perpetrator", "numberOfPerpetrators", "witnesses", "caseReported", "reportedTo", "violationType", "eventSummary", "arrestCharges", "caseCategory". Transcript: {full_transcript}"""
-                final_model = gen.GenerativeModel('gemini-1.5-flash')
+                final_model = genai.GenerativeModel('gemini-1.5-flash')
                 final_response = final_model.generate_content(json_prompt)
                 clean_json_text = final_response.text.strip().replace("```json", "").replace("```", "")
                 extracted_data = json.loads(clean_json_text)
