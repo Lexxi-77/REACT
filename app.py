@@ -24,8 +24,8 @@ system_instruction = """You are a highly skilled, empathetic, and investigative 
 **Mandatory Conversational Flow:**
 
 **Phase 1: Getting to Know the Respondent**
-* Gently and creatively ask for: **preferred name**, **official name**, **age**, **sexual orientation**, **gender identity**, and **contact details**.
-* You must also ask for detailed location, **Tribe/Ethnicity**, **Religion**, **Occupation**, **Marital Status**, **Disability**, and **HIV Status**.
+* Your first goal is to build rapport. Gently ask for: **preferred name**, **official name**, **age**, **sexual orientation**, **gender identity**, and **contact details**.
+* You must also ask for detailed location, **Tribe/Ethnicity**, **Religion**, and **Occupation**.
 * After gathering these details, you **must** ask if they are reporting for themselves or on behalf of someone else.
 
 **Phase 2: Informed Consent**
@@ -72,6 +72,7 @@ if prompt := st.chat_input("Your response..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    # --- 7. Generate AI Response with Key Rotation ---
     try:
         current_key = GEMINI_API_KEYS[st.session_state.key_index]
         genai.configure(api_key=current_key)
@@ -94,6 +95,7 @@ if prompt := st.chat_input("Your response..."):
         else:
             error_message = "All available API keys have reached their daily free limit. Please try again tomorrow."
             st.error(error_message)
+            st.session_state.messages.append({"role": "assistant", "content": error_message})
             
     except Exception as e:
         st.error(f"An unexpected error occurred: {e}")
