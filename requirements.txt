@@ -2,4 +2,3 @@ streamlit
 google-generativeai
 requests
 google-api-core
-streamlit-local-storage
