@@ -2,13 +2,11 @@ import streamlit as st
 import google.generativeai as genai
 import requests
 import json
-import re
 from google.api_core.exceptions import ResourceExhausted
 from datetime import datetime
-from streamlit_local_storage import LocalStorage
 
 # --- 1. Page & AI Configuration ---
-st.set_page_config(page_title="AI Interviewer", page_icon="🤖", layout="centered")
+st.set_page_config(page_title="AI Interviewer", page_icon="🤖")
 st.title("AI Interviewer 🤖")
 
 # --- 2. Securely Get API Keys & Config ---
@@ -17,7 +15,6 @@ try:
     JOTFORM_API_KEY = st.secrets["JOTFORM_API_KEY"]
     JOTFORM_FORM_ID = st.secrets["JOTFORM_FORM_ID"]
     JOTFORM_FIELD_MAPPING = st.secrets["JOTFORM_FIELD_MAPPING"]
-    localS = LocalStorage()
 except (KeyError, AttributeError):
     st.error("One or more secrets are missing. Please check your Streamlit Cloud secrets configuration.")
     st.stop()
@@ -26,11 +23,10 @@ except (KeyError, AttributeError):
 system_instruction = """You are a highly skilled, empathetic, and investigative AI assistant. You are a very good writer and a warm, natural conversationalist. Your primary goal is to make the user feel heard, safe, and comfortable while gently guiding them through a detailed interview.
 
 **Core Persona & Behavior:**
-1.  **Be Human-Like & Conversational:** Your language should be slightly more wordy, natural, and flowing. Use smooth transitions between topics.
-2.  **Be Intuitive & Adaptive:** Pay close attention to the user's responses. If their answers are short, you can be more direct. If they seem unfamiliar with complex English, simplify your language. Adapt your style to match theirs.
+1.  **Be Human-Like & Conversational:** Your language must be natural and flowing, not robotic. Use smooth transitions between topics. Be slightly more wordy to show you are engaged.
+2.  **Be Intuitive & Adaptive:** Pay close attention to the user's responses. If their answers are short and simple, keep your questions concise. If they seem unfamiliar with complex English, you must simplify your language. Adapt your style to match theirs.
 3.  **Be Persistent but Respectful:** Your goal is to complete the report. If a user doesn't answer a question, gently ask if they are comfortable sharing that information. If they say no, you may move on from **optional** questions. For **required** questions, you must gently explain why it's needed and try asking in a different way.
-4.  **Mid-Interview Confirmation:** After completing a major section (like 'Getting to Know the Respondent' or 'The Incident Report'), you **must** provide a brief, bullet-point summary of the key information you've collected and ask the user, **'Does that sound correct so far?'** before proceeding to the next phase.
-5.  **Handle Limitations:** If the user asks a question you cannot answer, politely state your limitations and provide the follow-up contact details.
+4.  **Handle Limitations:** If the user asks a question you cannot answer, politely state your limitations and provide the follow-up contact details: email **uprotectme@protonmail.com** or call/WhatsApp **+256764508050**.
 
 **Mandatory Conversational Flow:**
 
@@ -57,66 +53,116 @@ system_instruction = """You are a highly skilled, empathetic, and investigative 
 * The "CaseDescription" field for Jotform will be the full narrative story I generate.
 """
 
-# --- 4. Initialize State with Automatic Loading from Local Storage ---
-if "session_initialized" not in st.session_state:
-    stored_data = localS.getItem("interview_session")
-    if stored_data:
-        st.session_state.messages = stored_data.get("messages", [])
-        st.session_state.answers = stored_data.get("answers", {})
-        st.session_state.current_question_index = stored_data.get("current_question_index", 0)
-    else:
-        st.session_state.messages = [{
-            "role": "assistant",
-            "content": "Hello! I am a confidential AI assistant here to provide a safe space for you to share your experiences. This conversation is private. I will be asking for the essential information needed to complete your report. To begin, what is your full, official name?"
-        }]
-        st.session_state.answers = {}
-        st.session_state.current_question_index = 0
-    st.session_state.session_initialized = True
-
+# --- 4. Initialize Chat History and Key Index ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": "Hello! I am a confidential AI assistant here to provide a safe space for you to share your experiences. This conversation is private. I will be asking for the essential information needed to complete your report. To begin, what is your full, official name?"
+    })
 if "key_index" not in st.session_state:
     st.session_state.key_index = 0
 
-# --- 5. The Interview "Script" with Goals ---
-QUESTIONS = [
-    {"key": "name", "goal": "Start the interview by warmly asking for the user's full, official name.", "validation": "text"},
-    {"key": "age", "goal": "Ask for the user's age.", "validation": "age"},
-    {"key": "phoneNumber", "goal": "Ask for the user's phone number.", "validation": "phone"},
-    # ... (and so on for all your other questions, same as the previous full version)
-]
-
-# --- 6. Display Chat History ---
+# --- 5. Display Chat History ---
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# --- 7. The New, Stable, and Intelligent Interview Logic ---
-interview_complete = st.session_state.current_question_index >= len(QUESTIONS)
+# --- 6. The New, Stable Chat Logic ---
+if prompt := st.chat_input("Your response..."):
+    # Add user message to history and display it
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-if not interview_complete:
-    current_q = QUESTIONS[st.session_state.current_question_index]
-    
-    # Generate and display the next question if it hasn't been asked yet
-    if not st.session_state.messages or st.session_state.messages[-1]["role"] == "user":
+    # Prepare the conversation history for the API
+    api_history = []
+    for msg in st.session_state.messages:
+        api_history.append({
+            "role": "user" if msg["role"] == "user" else "model",
+            "parts": [{"text": msg["content"]}]
+        })
+
+    # Generate AI response with key rotation
+    try:
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                # (AI question generation logic, same as before)
-                pass # Placeholder for brevity
+                current_key = GEMINI_API_KEYS[st.session_state.key_index]
+                genai.configure(api_key=current_key)
+                
+                model = genai.GenerativeModel(model_name='gemini-1.5-flash')
+                
+                # Use the simpler, more stable generate_content method
+                response = model.generate_content(
+                    api_history,
+                    generation_config={"temperature": 0.75}, # Add creativity
+                    system_instruction=system_instruction
+                )
+                ai_response = response.text
+                st.markdown(ai_response)
 
-    # Get the user's answer
-    if prompt := st.chat_input("Your response...", key=f"input_{st.session_state.current_question_index}"):
-        # (Validation and answer handling logic, same as before)
-        pass # Placeholder for brevity
+        st.session_state.messages.append({"role": "assistant", "content": ai_response})
+        # The faulty st.rerun() has been removed to prevent freezing.
 
-        # --- NEW: Consolidated Automatic Saving ---
-        session_data = {
-            "messages": st.session_state.messages,
-            "answers": st.session_state.answers,
-            "current_question_index": st.session_state.current_question_index
-        }
-        localS.setItem("interview_session", session_data)
-        st.rerun()
+    except ResourceExhausted:
+        st.session_state.key_index += 1
+        if st.session_state.key_index < len(GEMINI_API_KEYS):
+            st.warning("Daily limit reached. Switching to the next API key...")
+            st.rerun() # Rerun is okay here to force a retry with the new key
+        else:
+            error_message = "All available API keys have reached their daily free limit. Please try again tomorrow."
+            st.error(error_message)
+            
+    except Exception as e:
+        st.error(f"An unexpected error occurred: {e}")
 
-else:
-    # --- 8. Final Submission Section ---
-    # (This section is unchanged from the previous full version)
-    pass # Placeholder for brevity
+# --- 7. Final Submission & Summary Section ---
+if st.session_state.messages and "This concludes our interview" in st.session_state.messages[-1]["content"]:
+    st.write("---")
+    
+    st.subheader("Finalize and Submit Report")
+    st.write("The interview is complete. Click the button below to save the full report to our secure database.")
+    
+    if st.button("Submit Full Report"):
+        try:
+            with st.spinner("Analyzing conversation and preparing report..."):
+                full_transcript = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages])
+                
+                all_keys_needed = ["name", "age", "phoneNumber", "sexualOrientation", "genderIdentity", "consentToStore", "consentToUse", "dateOfIncident", "typeOfViolation", "charges", "perpetrators", "caseDescription", "nameOfReferrer", "phoneOfReferrer", "emailOfReferrer", "supportNeeded", "supportBudget"]
+                json_prompt = f"""Analyze the following transcript and extract information for these keys: {', '.join(all_keys_needed)}. Format as a clean JSON object. Transcript: {full_transcript}"""
+                
+                final_model = genai.GenerativeModel('gemini-1.5-flash')
+                final_response = final_model.generate_content(json_prompt)
+                clean_json_text = final_response.text.strip().replace("```json", "").replace("```", "")
+                extracted_data = json.loads(clean_json_text)
+                
+                final_report_data = {}
+                for key, value in extracted_data.items():
+                    if key in JOTFORM_FIELD_MAPPING and value:
+                        if isinstance(value, list):
+                            final_report_data[JOTFORM_FIELD_MAPPING[key]] = ", ".join(map(str, value))
+                        else:
+                            final_report_data[JOTFORM_FIELD_MAPPING[key]] = str(value)
+
+                final_report_data[JOTFORM_FIELD_MAPPING["dateAndTime"]] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                final_report_data[JOTFORM_FIELD_MAPPING["caseAssignedTo"]] = "Alex Ssemambo"
+                final_report_data[JOTFORM_FIELD_MAPPING["referralReceivedBy"]] = "Alex Ssemambo"
+                
+                summary_prompt = f"You are a skilled human rights report writer... Transcript: {full_transcript}"
+                summary_model = genai.GenerativeModel('gemini-1.5-flash')
+                summary_response = summary_model.generate_content(summary_prompt)
+                final_report_data[JOTFORM_FIELD_MAPPING["caseDescription"]] = summary_response.text
+
+            with st.spinner("Submitting to Jotform..."):
+                submission_payload = {f'submission[{key}]': value for key, value in final_report_data.items()}
+                url = f"https://api.jotform.com/form/{JOTFORM_FORM_ID}/submissions?apiKey={JOTFORM_API_KEY}"
+                
+                response = requests.post(url, data=submission_payload)
+
+                if response.status_code in [200, 201]:
+                    st.success("Success! Your report has been securely submitted.")
+                else:
+                    st.error(f"Submission failed. Status: {response.status_code} - {response.text}")
+        
+        except Exception as e:
+            st.error(f"An error occurred during submission: {e}")
