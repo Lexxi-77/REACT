@@ -115,4 +115,55 @@ if prompt := st.chat_input("Your response..."):
         st.error(f"An unexpected error occurred: {e}")
 
 # --- 8. Final Submission & Summary Section ---
-if st.session_state.messages and "This concludes our interview" in st.session_state.messages[-1]["
+if st.session_state.messages and "This concludes our interview" in st.session_state.messages[-1]["content"]:
+    st.write("---")
+    
+    st.subheader("Finalize and Submit Report")
+    st.write("The interview is complete. Click the button below to save the full report to our secure database.")
+    
+    if st.button("Submit Full Report"):
+        try:
+            with st.spinner("Analyzing conversation and preparing report..."):
+                full_transcript = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages])
+                
+                # Full list of keys for the final JSON extraction
+                all_keys_needed = ["name", "age", "phoneNumber", "sexualOrientation", "genderIdentity", "consentToStore", "consentToUse", "dateOfIncident", "typeOfViolation", "charges", "perpetrators", "caseDescription", "nameOfReferrer", "phoneOfReferrer", "emailOfReferrer", "supportNeeded", "supportBudget"]
+                json_prompt = f"""Analyze the following transcript and extract information for these keys: {', '.join(all_keys_needed)}. Format as a clean JSON object. Transcript: {full_transcript}"""
+                
+                final_model = genai.GenerativeModel('gemini-1.5-flash')
+                final_response = final_model.generate_content(json_prompt)
+                clean_json_text = final_response.text.strip().replace("```json", "").replace("```", "")
+                extracted_data = json.loads(clean_json_text)
+                
+                final_report_data = {}
+                for key, value in extracted_data.items():
+                    if key in JOTFORM_FIELD_MAPPING and value:
+                        if isinstance(value, list):
+                            final_report_data[JOTFORM_FIELD_MAPPING[key]] = ", ".join(map(str, value))
+                        else:
+                            final_report_data[JOTFORM_FIELD_MAPPING[key]] = str(value)
+
+                # --- Add Automated Data ---
+                final_report_data[JOTFORM_FIELD_MAPPING["dateAndTime"]] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                final_report_data[JOTFORM_FIELD_MAPPING["caseAssignedTo"]] = "Alex Ssemambo"
+                final_report_data[JOTFORM_FIELD_MAPPING["referralReceivedBy"]] = "Alex Ssemambo"
+                
+                # Generate the narrative story to be used as the case description
+                summary_prompt = f"You are a skilled human rights report writer. Your task is to transform the following raw interview transcript into a clear, coherent, and chronologically ordered narrative. The story must be told from a third-person perspective. Synthesize all the details provided by the user into a flowing story. Transcript: {full_transcript}"
+                summary_model = genai.GenerativeModel('gemini-1.5-flash')
+                summary_response = summary_model.generate_content(summary_prompt)
+                final_report_data[JOTFORM_FIELD_MAPPING["caseDescription"]] = summary_response.text
+
+            with st.spinner("Submitting to Jotform..."):
+                submission_payload = {f'submission[{key}]': value for key, value in final_report_data.items()}
+                url = f"https://api.jotform.com/form/{JOTFORM_FORM_ID}/submissions?apiKey={JOTFORM_API_KEY}"
+                
+                response = requests.post(url, data=submission_payload)
+
+                if response.status_code in [200, 201]:
+                    st.success("Success! Your report has been securely submitted.")
+                else:
+                    st.error(f"Submission failed. Status: {response.status_code} - {response.text}")
+        
+        except Exception as e:
+            st.error(f"An error occurred during submission: {e}")
