@@ -19,35 +19,47 @@ except (KeyError, AttributeError):
     st.error("One or more secrets are missing. Please check your Streamlit Cloud secrets configuration.")
     st.stop()
 
-# --- 3. The Interview "Script" ---
-QUESTIONS = [
-    {"key": "name", "question": "To begin, what is your full, official name?", "required": True},
-    {"key": "age", "question": "Thank you. And what is your age?", "required": True},
-    {"key": "phoneNumber", "question": "What is the best phone number to reach you at?", "required": True},
-    {"key": "sexualOrientation", "question": "To help me understand your situation, would you be comfortable sharing your sexual orientation? The options are Gay/MSM, Lesbian, Bisexual, Queer, Straight, or Asexual.", "required": True},
-    {"key": "genderIdentity", "question": "Thank you. And how do you identify in terms of your gender? The options are Cis Man, Cis Woman, Trans Man, Trans Woman, Non-binary, or Gender non-conforming.", "required": True},
-    {"key": "memberOrganisation", "question": "Are you part of any member organisation? This is optional.", "required": False},
-    {"key": "consentToStore", "question": "Before we continue, I need to ask for your consent. Are you comfortable with me storing the information you provide today? Please answer with 'Yes' or 'No'.", "required": True},
-    {"key": "consentToUse", "question": "Thank you. And are you comfortable with this information being used anonymously for advocacy purposes to help others? Please answer with 'Yes' or 'No'.", "required": True},
-    {"key": "dateOfIncident", "question": "Now, let's talk about the incident itself. Can you please tell me the date when this happened?", "required": True},
-    {"key": "typeOfViolation", "question": "How would you describe the type of violation you experienced? You can choose more than one from this list: Forced eviction, Family banishment, Sexual violence, Psychological or emotional violence, Political/institutional violence, Cyber harassment/bullying, Denial of HIV services, Denial of SRHR services, Denial of employment, Fired, Detention/arrest, Blackmail.", "required": True},
-    {"key": "charges", "question": "If you were detained or arrested, what were the charges against you? If this doesn't apply, you can just say 'N/A'.", "required": False},
-    {"key": "perpetrators", "question": "Could you please provide the name or a description of the person or people responsible?", "required": True},
-    {"key": "caseDescription", "question": "Thank you for providing those details. Now, please take as much time as you need to describe what happened in your own words. The more detail you can provide, the better.", "required": True},
-    {"key": "nameOfReferrer", "question": "We're almost done. To help us understand how people are finding us, could you tell me the name of the person who referred you to this service?", "required": True},
-    {"key": "phoneOfReferrer", "question": "What is the referrer's phone number? If you don't have it, you can provide their email in the next question.", "required": False},
-    {"key": "emailOfReferrer", "question": "And what is the referrer's email address?", "required": False},
-    {"key": "supportNeeded", "question": "To help us understand your situation, what kind of immediate support would be most helpful to you right now?", "required": True},
-    {"key": "supportBudget", "question": "Thank you. And do you have an estimate of the cost or budget for the support you need?", "required": True},
-]
+# --- 3. AI Persona and Instructions (The "Brain") ---
+system_instruction = """You are a highly skilled, empathetic, and investigative AI assistant from a human rights organization. You are a very good writer and a warm, natural conversationalist. Your primary goal is to make the user feel heard, safe, and comfortable while gently guiding them through a detailed interview.
 
-# --- 4. Initialize State ---
+**Core Persona & Behavior:**
+1.  **Be Human-Like & Conversational:** Your language must be natural and flowing, not robotic. Use smooth transitions between topics. For example, instead of just asking the next question, say things like, "Thank you for sharing that with me. If it's okay, the next thing I'd like to ask about is..." or "That gives me a clearer picture, thank you. Let's move on to..."
+2.  **Be Intuitive & Adaptive:** Pay close attention to the user's responses. If their answers are short and simple, keep your questions concise. If they seem unfamiliar with complex English, you must simplify your language. Adapt your style to match theirs to make them feel comfortable.
+3.  **Be Persistent but Respectful:** Your goal is to complete the report. If a user doesn't answer a question, gently ask if they are comfortable sharing that information. If they say no, you may move on from **optional** questions. For **required** questions, you must gently explain why it's needed and try asking in a different way.
+4.  **Handle Limitations:** If the user asks a question you cannot answer, politely state your limitations and provide the follow-up contact details: email **uprotectme@protonmail.com** or call/WhatsApp **+256764508050**.
+
+**Mandatory Conversational Flow & Data Collection Rules:**
+
+**Phase 1: Getting to Know the Respondent**
+* **Required Details:** You **must** ask for and get a response for each of the following, one by one: **Full Name**, **Age**, **Phone Number**, **Sexual Orientation**, **Gender Identity**.
+* **Optional Details:** You should also ask for their **Member Organisation**.
+
+**Phase 2: Consent (CRITICAL)**
+* You **must** ask for their consent to **store their data** and to **use their data for advocacy**.
+
+**Phase 3: The Incident Report**
+* **Required Details:** You **must** ask for and get a response for each of the following: **Date of Incident**, **Type of Violation** (presenting the options), **Perpetrator(s)**, and a **Narrative** of the incident.
+* **Conditional Question:** If they select "Detention/arrest", you **must** then ask what the charges were.
+
+**Phase 4: Final Details**
+* **Referral Information:** Ask who referred them to this service (**Name of Referrer**). Then ask for the referrer's **Phone Number** and **Email**, explaining they only need to provide one.
+* **Support Needs (Required):** Ask what kind of support they need and for a brief description of the costs or budget for that support.
+
+**Final Step:**
+* Only after every single **required** topic above has been covered, you may end the interview by saying the exact phrase: "This concludes our interview. The submission buttons are now available below."
+
+**Jotform Integration Rules (Internal monologue):**
+* The "dateAnd" field will be the current submission time. The "CaseNo" field will be blank. The "referralReceived" and "caseAssigned" fields will be "Alex Ssemambo".
+* The "CaseDescription" field for Jotform will be the full narrative story I generate.
+"""
+
+# --- 4. Initialize Chat History and Key Index ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "answers" not in st.session_state:
-    st.session_state.answers = {}
-if "current_question_index" not in st.session_state:
-    st.session_state.current_question_index = 0
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": "Hello! I am a confidential AI assistant here to provide a safe space for you to share your experiences. This conversation is private. I will be asking for the essential information needed to complete your report. To begin, what is your full, official name?"
+    })
 if "key_index" not in st.session_state:
     st.session_state.key_index = 0
 
@@ -56,73 +68,95 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# --- 6. The Stable Interview Logic ---
-interview_complete = st.session_state.current_question_index >= len(QUESTIONS)
+# --- 6. NEW, STABLE CHAT LOGIC ---
+if prompt := st.chat_input("Your response..."):
+    # Add user message to history and display it
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-if not interview_complete:
-    current_q = QUESTIONS[st.session_state.current_question_index]
-    if not st.session_state.messages or st.session_state.messages[-1]["content"] != current_q["question"]:
-        st.session_state.messages.append({"role": "assistant", "content": current_q["question"]})
+    # Prepare the conversation history for the API in the correct format
+    api_history = []
+    for msg in st.session_state.messages:
+        api_history.append({
+            "role": "user" if msg["role"] == "user" else "model",
+            "parts": [{"text": msg["content"]}]
+        })
+
+    # Generate AI response with key rotation
+    try:
+        current_key = GEMINI_API_KEYS[st.session_state.key_index]
+        genai.configure(api_key=current_key)
+        
+        model = genai.GenerativeModel(model_name='gemini-1.5-flash')
+        
+        # Use the simpler, more stable generate_content method with the full history
+        response = model.generate_content(
+            api_history,
+            generation_config={"temperature": 0.7}, # Add creativity
+            system_instruction=system_instruction
+        )
+        ai_response = response.text
+
         with st.chat_message("assistant"):
-            st.markdown(current_q["question"])
+            st.markdown(ai_response)
+        st.session_state.messages.append({"role": "assistant", "content": ai_response})
+        st.rerun() # Rerun to ensure the new message is processed immediately
 
-    if prompt := st.chat_input("Your response..."):
-        st.session_state.answers[current_q["key"]] = prompt
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        st.session_state.current_question_index += 1
+    except ResourceExhausted:
+        st.session_state.key_index += 1
+        if st.session_state.key_index < len(GEMINI_API_KEYS):
+            st.warning("Daily limit reached. Switching to the next API key...")
+            st.rerun()
+        else:
+            error_message = "All available API keys have reached their daily free limit. Please try again tomorrow."
+            st.error(error_message)
+            
+    except Exception as e:
+        st.error(f"An unexpected error occurred: {e}")
         st.rerun()
 
-else:
-    # --- 7. Final Submission Section ---
-    if not st.session_state.messages or "This concludes our interview" not in st.session_state.messages[-1]["content"]:
-        final_message = "Thank you. This concludes our interview. The submission button is now available below."
-        st.session_state.messages.append({"role": "assistant", "content": final_message})
-        with st.chat_message("assistant"):
-            st.markdown(final_message)
-
+# --- 7. Final Submission & Summary Section ---
+if st.session_state.messages and "This concludes our interview" in st.session_state.messages[-1]["content"]:
     st.write("---")
+    
     st.subheader("Finalize and Submit Report")
+    st.write("The interview is complete. Click the button below to save the full report to our secure database.")
     
     if st.button("Submit Full Report"):
         try:
             with st.spinner("Analyzing conversation and preparing report..."):
-                # --- NEW: Function to handle AI calls with key rotation ---
-                def generate_with_key_rotation(prompt_text):
-                    while st.session_state.key_index < len(GEMINI_API_KEYS):
-                        try:
-                            current_key = GEMINI_API_KEYS[st.session_state.key_index]
-                            genai.configure(api_key=current_key)
-                            model = genai.GenerativeModel('gemini-1.5-flash')
-                            response = model.generate_content(prompt_text)
-                            return response.text
-                        except ResourceExhausted:
-                            st.session_state.key_index += 1
-                            st.warning(f"Daily limit reached for key #{st.session_state.key_index}. Switching to the next key...")
-                            continue # Try the next key
-                    # If all keys are exhausted
-                    st.error("All available API keys have reached their daily free limit. Please try again tomorrow.")
-                    return None
-                # --- END of new function ---
-
-                # Generate the narrative story
-                narrative_prompt = f"Based on the following interview answers, please write a clear, coherent, third-person narrative of the incident: {json.dumps(st.session_state.answers)}"
-                narrative_story = generate_with_key_rotation(narrative_prompt)
-                if not narrative_story: st.stop()
-
-                # Prepare the final data payload
+                full_transcript = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages])
+                
+                all_keys_needed = ["name", "age", "phoneNumber", "sexualOrientation", "genderIdentity", "consentToStore", "consentToUse", "dateOfIncident", "typeOfViolation", "charges", "perpetrators", "caseDescription", "nameOfReferrer", "phoneOfReferrer", "emailOfReferrer", "supportNeeded", "supportBudget"]
+                json_prompt = f"""Analyze the following transcript and extract information for these keys: {', '.join(all_keys_needed)}. Format as a clean JSON object. Transcript: {full_transcript}"""
+                
+                final_model = genai.GenerativeModel('gemini-1.5-flash')
+                final_response = final_model.generate_content(json_prompt)
+                clean_json_text = final_response.text.strip().replace("```json", "").replace("```", "")
+                extracted_data = json.loads(clean_json_text)
+                
                 final_report_data = {}
-                for key, value in st.session_state.answers.items():
+                for key, value in extracted_data.items():
                     if key in JOTFORM_FIELD_MAPPING and value:
-                        final_report_data[JOTFORM_FIELD_MAPPING[key]] = str(value)
+                        if isinstance(value, list):
+                            final_report_data[JOTFORM_FIELD_MAPPING[key]] = ", ".join(map(str, value))
+                        else:
+                            final_report_data[JOTFORM_FIELD_MAPPING[key]] = str(value)
 
                 final_report_data[JOTFORM_FIELD_MAPPING["dateAndTime"]] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 final_report_data[JOTFORM_FIELD_MAPPING["caseAssignedTo"]] = "Alex Ssemambo"
                 final_report_data[JOTFORM_FIELD_MAPPING["referralReceivedBy"]] = "Alex Ssemambo"
-                final_report_data[JOTFORM_FIELD_MAPPING["caseDescription"]] = narrative_story
+                
+                summary_prompt = f"You are a skilled human rights report writer... Transcript: {full_transcript}"
+                summary_model = genai.GenerativeModel('gemini-1.5-flash')
+                summary_response = summary_model.generate_content(summary_prompt)
+                final_report_data[JOTFORM_FIELD_MAPPING["caseDescription"]] = summary_response.text
 
             with st.spinner("Submitting to Jotform..."):
                 submission_payload = {f'submission[{key}]': value for key, value in final_report_data.items()}
                 url = f"https://api.jotform.com/form/{JOTFORM_FORM_ID}/submissions?apiKey={JOTFORM_API_KEY}"
+                
                 response = requests.post(url, data=submission_payload)
 
                 if response.status_code in [200, 201]:
