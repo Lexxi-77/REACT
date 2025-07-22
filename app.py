@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import google.generativeai as genai
 from datetime import datetime
+import json
 
 # Load secrets
 GEMINI_KEYS = st.secrets["gemini_keys"]
@@ -12,8 +13,6 @@ FIELD_MAP = st.secrets["JOTFORM_FIELD_MAPPING"]
 # Session state initialization
 if "conversation" not in st.session_state:
     st.session_state.conversation = []
-if "responses" not in st.session_state:
-    st.session_state.responses = {}
 if "current_key_index" not in st.session_state:
     st.session_state.current_key_index = 0
 
@@ -26,19 +25,25 @@ def get_gemini_model():
 def rotate_key():
     st.session_state.current_key_index += 1
     if st.session_state.current_key_index >= len(GEMINI_KEYS):
-        st.error("All Gemini API keys have reached their limit. Please try again tomorrow.")
+        st.error("All Gemini API keys have reached their daily limit. Please try again tomorrow.")
         st.stop()
 
 # Interviewer AI
 def ask_next_question():
     model = get_gemini_model()
-    prompt = {
-        "system_instruction": "You are a warm, empathetic interviewer from a human rights organization...",
-        "conversation": st.session_state.conversation,
-        "goal": "Ask the next appropriate question to gather required information."
-    }
+    history = "\n".join([f"{x['role']}: {x['content']}" for x in st.session_state.conversation])
+    prompt = f"""
+You are a warm, empathetic interviewer from a human rights organization.
+Your job is to gently guide the user through a detailed interview to document a human rights violation.
+
+Conversation so far:
+{history}
+
+Your goal is to ask the next appropriate question to gather required information.
+Respond with only the next question.
+"""
     try:
-        response = model.generate_content(prompt)
+        response = model.generate_content([{"text": prompt}])
         return response.text
     except Exception as e:
         if "ResourceExhausted" in str(e):
@@ -53,14 +58,16 @@ def generate_report_and_json():
     model = get_gemini_model()
     transcript = "\n".join([f"{x['role']}: {x['content']}" for x in st.session_state.conversation])
     prompt = f"""
-    You are a documentation AI. Given the following interview transcript, generate:
-    1. A third-person narrative of the incident.
-    2. A JSON object with all required and optional fields.
-    Transcript:
-    {transcript}
-    """
+You are a documentation AI. Given the following interview transcript, generate:
+
+1. A third-person narrative of the incident.
+2. A JSON object with all required and optional fields.
+
+Transcript:
+{transcript}
+"""
     try:
-        response = model.generate_content(prompt)
+        response = model.generate_content([{"text": prompt}])
         return response.text
     except Exception as e:
         if "ResourceExhausted" in str(e):
@@ -86,15 +93,15 @@ def submit_to_jotform(json_data, narrative):
     try:
         response = requests.post(url, data=payload)
         if response.status_code == 200:
-            st.success("Report submitted successfully.")
+            st.success("✅ Report submitted successfully.")
         else:
-            st.error(f"Submission failed: {response.status_code} - {response.text}")
+            st.error(f"❌ Submission failed: {response.status_code} - {response.text}")
     except Exception as e:
-        st.error(f"Jotform API error: {e}")
+        st.error(f"❌ Jotform API error: {e}")
 
 # UI
-st.title("Human Rights Interview Agent")
-st.markdown("Welcome. This AI will guide you through a confidential interview to document any human rights violations you’ve experienced.")
+st.title("🕊️ Human Rights Interview Agent")
+st.markdown("This AI will guide you through a confidential interview to document any human rights violations you’ve experienced.")
 
 if st.button("Start Interview") and not st.session_state.conversation:
     st.session_state.conversation.append({"role": "system", "content": "Begin interview"})
@@ -115,11 +122,9 @@ if st.session_state.conversation:
 if st.button("Submit Full Report"):
     result = generate_report_and_json()
     try:
-        # Split narrative and JSON
         narrative, json_block = result.split("JSON:")
-        import json
         json_data = json.loads(json_block.strip())
         submit_to_jotform(json_data, narrative.strip())
-        st.markdown("Please send any supporting evidence to **uprotectme@protonmail.com** or via WhatsApp to **+256764508050**.")
+        st.markdown("📎 Please send any supporting evidence to **uprotectme@protonmail.com** or via WhatsApp to **+256764508050**.")
     except Exception as e:
-        st.error(f"Error parsing Documenter output: {e}")
+        st.error(f"❌ Error parsing Documenter output: {e}")
