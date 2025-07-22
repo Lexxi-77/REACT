@@ -19,8 +19,8 @@ except (KeyError, AttributeError):
     st.error("One or more secrets are missing. Please check your Streamlit Cloud secrets configuration.")
     st.stop()
 
-# --- 3. The Definitive AI Personas ---
-INTERVIEWER_PERSONA = """You are a highly skilled, empathetic, and investigative AI assistant from a human rights organization. You are a very good writer and a warm, natural conversationalist. Your primary goal is to make the user feel heard, safe, and comfortable while gently guiding them through a detailed interview.
+# --- 3. The Definitive AI Persona and Instructions (The "Brain") ---
+system_instruction = """You are a highly skilled, empathetic, and investigative AI assistant from a human rights organization. You are a very good writer and a warm, natural conversationalist. Your primary goal is to make the user feel heard, safe, and comfortable while gently guiding them through a detailed interview.
 
 **## Your Core Identity & Behavior ##**
 * **Be Human-Like & Conversational:** Your language must be natural and flowing, not robotic. Use smooth transitions. Be slightly more wordy to show you are engaged.
@@ -55,12 +55,12 @@ You must guide the conversation to collect the following information. Do not ask
 
 **## Final Step ##**
 * Only when you are certain you have all **required** information, end the interview by saying the exact phrase: "This concludes our interview. The submission buttons are now available below."
-"""
 
-DOCUMENTER_PERSONA = """You are a cold, analytical, and ruthlessly efficient data extraction AI. You do not chat. Your only function is to take a raw text transcript and extract specific data points into a perfect JSON format. You do not miss any details.
-
-**Your Task:**
-Analyze the following transcript and extract information for these keys: "name", "age", "phoneNumber", "sexualOrientation", "genderIdentity", "consentToStore", "consentToUse", "dateOfIncident", "typeOfViolation", "charges", "perpetrators", "caseDescription", "nameOfReferrer", "phoneOfReferrer", "emailOfReferrer", "supportNeeded", "supportBudget". If a piece of information is not present, return an empty string for that key.
+**## Jotform Integration Rules (Internal Monologue) ##**
+* The "dateAnd" field will be the current submission time.
+* The "CaseNo" field will be left blank.
+* The "referralReceived" and "caseAssigned" fields will be "Alex Ssemambo".
+* The "CaseDescription" field for Jotform will be the full narrative story I generate.
 """
 
 # --- 4. Initialize Chat History and Key Index ---
@@ -84,7 +84,7 @@ if prompt := st.chat_input("Your response..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    api_history = [{"role": "model", "parts": [{"text": INTERVIEWER_PERSONA}]}]
+    api_history = [{"role": "model", "parts": [{"text": system_instruction}]}]
     for msg in st.session_state.messages:
         api_history.append({
             "role": "user" if msg["role"] == "user" else "model",
@@ -134,22 +134,20 @@ if st.session_state.messages and "This concludes our interview" in st.session_st
             with st.spinner("Analyzing conversation and preparing report..."):
                 full_transcript = "\n".join([f"**{msg['role'].capitalize()}:** {msg['content']}" for msg in st.session_state.messages])
                 
-                # Use the Documenter AI to extract data
-                json_prompt = f"{DOCUMENTER_PERSONA}\n\n**Transcript:**\n{full_transcript}"
+                json_prompt = f"""You are a cold, analytical, and ruthlessly efficient data extraction AI. Your only function is to take a raw text transcript and extract specific data points into a perfect JSON format. You do not miss any details.
+
+                **Your Task:**
+                Analyze the following transcript and extract information for these keys: "name", "age", "phoneNumber", "sexualOrientation", "genderIdentity", "consentToStore", "consentToUse", "dateOfIncident", "typeOfViolation", "charges", "perpetrators", "caseDescription", "nameOfReferrer", "phoneOfReferrer", "emailOfReferrer", "supportNeeded", "supportBudget". If a piece of information is not present, return an empty string for that key.
+
+                **Transcript:**
+                {full_transcript}
+                """
                 
                 final_model = genai.GenerativeModel('gemini-1.5-flash')
                 final_response = final_model.generate_content(json_prompt)
                 clean_json_text = final_response.text.strip().replace("```json", "").replace("```", "")
                 extracted_data = json.loads(clean_json_text)
                 
-                # Robustness Check: Ensure all required fields were extracted
-                required_fields_internal = ["name", "age", "phoneNumber", "sexualOrientation", "genderIdentity", "consentToStore", "consentToUse", "dateOfIncident", "typeOfViolation", "perpetrators", "caseDescription", "nameOfReferrer", "supportNeeded", "supportBudget"]
-                missing_fields = [field for field in required_fields_internal if not extracted_data.get(field)]
-                
-                if missing_fields:
-                    st.error(f"Submission Failed: The interview was incomplete. The following required information was missed: {', '.join(missing_fields)}. Please try the interview again.")
-                    st.stop()
-
                 final_report_data = {}
                 for key, value in extracted_data.items():
                     if key in JOTFORM_FIELD_MAPPING and value:
@@ -158,12 +156,10 @@ if st.session_state.messages and "This concludes our interview" in st.session_st
                         else:
                             final_report_data[JOTFORM_FIELD_MAPPING[key]] = str(value)
 
-                # Add automated data
                 final_report_data[JOTFORM_FIELD_MAPPING["dateAndTime"]] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 final_report_data[JOTFORM_FIELD_MAPPING["caseAssignedTo"]] = "Alex Ssemambo"
                 final_report_data[JOTFORM_FIELD_MAPPING["referralReceivedBy"]] = "Alex Ssemambo"
                 
-                # Use the Interviewer AI (as a writer) to generate the narrative
                 summary_prompt = f"You are a skilled human rights report writer. Your task is to transform the following raw interview transcript into a clear, coherent, and chronologically ordered narrative. The story must be told from a third-person perspective. Synthesize all the details provided by the user into a flowing story. Transcript: {full_transcript}"
                 summary_model = genai.GenerativeModel('gemini-1.5-flash')
                 summary_response = summary_model.generate_content(summary_prompt)
