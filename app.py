@@ -53,13 +53,7 @@ system_instruction = """You are a highly skilled, empathetic, and investigative 
 * The "CaseDescription" field for Jotform will be the full narrative story I generate.
 """
 
-# --- 4. Initialize the AI Model ---
-model = genai.GenerativeModel(
-    model_name='gemini-1.5-flash',
-    system_instruction=system_instruction
-)
-
-# --- 5. Initialize Chat History and Key Index ---
+# --- 4. Initialize Chat History and Key Index ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
     st.session_state.messages.append({
@@ -69,25 +63,35 @@ if "messages" not in st.session_state:
 if "key_index" not in st.session_state:
     st.session_state.key_index = 0
 
-# --- 6. Display Chat History ---
+# --- 5. Display Chat History ---
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# --- 7. Handle User Input ---
+# --- 6. NEW, STABLE CHAT LOGIC ---
 if prompt := st.chat_input("Your response..."):
+    # Add user message to history and display it
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    # Prepare the conversation history for the API
+    api_history = []
+    for msg in st.session_state.messages:
+        api_history.append({
+            "role": "user" if msg["role"] == "user" else "model",
+            "parts": [msg["content"]]
+        })
+
+    # Generate AI response with key rotation
     try:
         current_key = GEMINI_API_KEYS[st.session_state.key_index]
         genai.configure(api_key=current_key)
         
         model = genai.GenerativeModel(model_name='gemini-1.5-flash', system_instruction=system_instruction)
-        chat_session = model.start_chat(history=[{"role": "user" if msg["role"] == "user" else "model", "parts": [msg["content"]]} for msg in st.session_state.messages])
         
-        response = chat_session.send_message(prompt)
+        # Use the simpler, more stable generate_content method
+        response = model.generate_content(api_history)
         ai_response = response.text
 
         with st.chat_message("assistant"):
@@ -97,7 +101,7 @@ if prompt := st.chat_input("Your response..."):
     except ResourceExhausted:
         st.session_state.key_index += 1
         if st.session_state.key_index < len(GEMINI_API_KEYS):
-            st.warning("Daily limit for the current API key was reached. Automatically switching to the next key...")
+            st.warning("Daily limit reached. Switching to the next API key...")
             st.rerun()
         else:
             error_message = "All available API keys have reached their daily free limit. Please try again tomorrow."
@@ -105,8 +109,9 @@ if prompt := st.chat_input("Your response..."):
             
     except Exception as e:
         st.error(f"An unexpected error occurred: {e}")
+        st.rerun()
 
-# --- 8. Final Submission & Summary Section ---
+# --- 7. Final Submission & Summary Section ---
 if st.session_state.messages and "This concludes our interview" in st.session_state.messages[-1]["content"]:
     st.write("---")
     
@@ -138,7 +143,7 @@ if st.session_state.messages and "This concludes our interview" in st.session_st
                 final_report_data[JOTFORM_FIELD_MAPPING["caseAssignedTo"]] = "Alex Ssemambo"
                 final_report_data[JOTFORM_FIELD_MAPPING["referralReceivedBy"]] = "Alex Ssemambo"
                 
-                summary_prompt = f"You are a skilled human rights report writer. Your task is to transform the following raw interview transcript into a clear, coherent, and chronologically ordered narrative. The story must be told from a third-person perspective. Synthesize all the details provided by the user into a flowing story. Transcript: {full_transcript}"
+                summary_prompt = f"You are a skilled human rights report writer... Transcript: {full_transcript}"
                 summary_model = genai.GenerativeModel('gemini-1.5-flash')
                 summary_response = summary_model.generate_content(summary_prompt)
                 final_report_data[JOTFORM_FIELD_MAPPING["caseDescription"]] = summary_response.text
